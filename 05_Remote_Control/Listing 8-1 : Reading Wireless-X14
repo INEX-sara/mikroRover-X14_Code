@@ -1,0 +1,64 @@
+from machine import Pin
+import rp2
+import time
+# ---ส่วนตั้งค่า (Configuration)---
+UART_PIN_ID = 12       # ใช้พอร์ต D3 (ขา 12)
+BAUD_RATE   = 9600     # ความเร็วการสื่อสารของจอย Wireless-X14
+TIMEOUT_MS  = 150      # เวลาที่ใช้จับว่าปล่อยมือหรือยัง (มิลลิวินาที)
+# ตารางจับคู่ชื่อปุ่ม (รหัส Hex -> ชื่อปุ่มภาษาไทย)
+BUTTONS = {
+    0x0011: "LU", 0x0021: "LL", 0x0081: "LD", 0x0041: "LR",
+    0x1001: "RU", 0x4001: "RL", 0x8001: "RD", 0x2001: "RR",
+    0x0009: "L1", 0x0005: "L2", 0x0003: "LT",
+    0x0801: "R1", 0x0401: "R2", 0x0201: "RT"
+}
+# ---สร้างตัวอ่านสัญญาณ (PIO Setup)---
+# ส่วนนี้ใช้ภาษา Assembly สร้างตัวอ่าน UART จำลองขึ้นมาเอง
+@rp2.asm_pio(in_shiftdir=rp2.PIO.SHIFT_LEFT, autopush=True, push_thresh=8)
+def uart_rx():
+    wait(0, pin, 0)         # รอสัญญาณเริ่ม (Start Bit เป็น 0)
+    set(x, 7)       [10]    # เตรียมวนลูปรับข้อมูล 8 บิต
+    label("bit_loop")       # จุดเริ่มวนลูป
+    in_(pins, 1)            # อ่านข้อมูลเข้ามา 1 บิต
+    nop()           [5]     # รอจังหวะเวลา (ให้ตรงกับความเร็ว)
+    jmp(x_dec, "bit_loop")  # กระโดดกลับไปเริ่มวนลูปใหม่
+# ตั้งค่าขา Pin และเริ่มการทำงาน
+# สำคัญ: เปิด PULL_UP เพื่อป้องกันสัญญาณรบกวน
+pin_setup = Pin(UART_PIN_ID, Pin.IN, Pin.PULL_UP)
+sm = rp2.StateMachine(0, uart_rx, freq=8*BAUD_RATE, in_base=pin_setup)
+sm.active(1)
+print(f"ระบบพร้อมทำงานที่พอร์ต D3 (ขา {UART_PIN_ID})...")
+# ---ตัวแปรช่วยจำ (Variables)---
+first_byte = 0              # ตัวแปรพักข้อมูลชุดแรก (ครึ่งแรก)
+waiting_for_byte1 = True    # สถานะ: กำลังรอรับข้อมูลชุดแรกอยู่ใช่ไหม?
+is_pressed = False          # สถานะ: ตอนนี้มีการกดปุ่มค้างอยู่ไหม?
+last_time = time.ticks_ms() # เวลาล่าสุดที่ได้รับข้อมูล
+# ---ลูปหลัก (Main Loop)---
+while True:
+    current_time = time.ticks_ms() # เวลาปัจจุบัน
+    # --- ตรวจสอบการปล่อยมือ (Timeout) ---
+    # ถ้ามีการกดปุ่มค้างอยู่ แต่ไม่มีข้อมูลใหม่เข้ามานานเกิน 150ms
+    if is_pressed and time.ticks_diff(current_time, last_time) > TIMEOUT_MS:
+        print("-> RELEASED (ปล่อยมือ)")
+        is_pressed = False
+    # --- ตรวจสอบข้อมูลเข้า (Incoming Data) ---
+    if sm.rx_fifo(): # ถ้ามีข้อมูลมารอในคิว
+        # อ่านข้อมูลออกมา 1 ตัว (ค่า 0-255)
+        data = sm.get() & 0xFF
+        last_time = current_time # อัปเดตเวลาล่าสุด
+        if waiting_for_byte1:
+            # ขั้นตอนที่ 1: เก็บข้อมูลครึ่งแรกไว้ก่อน
+            first_byte = data
+            waiting_for_byte1 = False # เปลี่ยนสถานะไปรอครึ่งหลัง
+        else:
+            # ขั้นตอนที่ 2: เอาครึ่งแรกมารวมกับครึ่งหลัง
+            # สูตร: เอาตัวแรกเลื่อนซ้าย 8 หลัก แล้วบวกตัวที่สอง
+            keycode = (first_byte << 8) | data
+            # แปลงรหัส Hex เป็นชื่อปุ่มที่มนุษย์อ่านออก
+            button_name = BUTTONS.get(keycode, "Unknown")
+            # กรองค่าว่าง (0x0000, 0x0001) ไม่ให้แสดงรกหน้าจอ
+            if keycode not in (0, 1):
+                # แสดงผล: ชื่อปุ่ม และ รหัสฐาน 16 (Hex)
+                print(f"Button: {button_name:<15} | Code: 0x{keycode:04X}")
+                is_pressed = True # จำสถานะว่ามีการกดปุ่ม
+            waiting_for_byte1 = True # รีเซ็ตกลับไปรอข้อมูลชุดใหม่
