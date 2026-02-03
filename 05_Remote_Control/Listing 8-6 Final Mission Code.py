@@ -1,13 +1,3 @@
-"""
-Project: mikroRover with Wireless-X14
-Hardware: KidMotor V4i + Wireless-X14 Remote (GPIO12)
-Description: 
-    โปรแกรมควบคุมหุ่นยนต์แบบครบวงจร สามารถสั่งงานพร้อมกันได้ทั้ง 2 ระบบ:
-    1. ระบบขับเคลื่อน (DC Motors): เดินหน้า, ถอยหลัง, หมุนซ้าย, หมุนขวา
-    2. ระบบแขนจับ (Servos): ควบคุมเซอร์โว 2 ตัวอิสระ (แขนยก/ก้ามหนีบ)
-    พร้อมระบบ Safety Timeout หยุดรถอัตโนมัติเมื่อสัญญาณขาดหาย
-"""
-
 from machine import Pin, PWM  # เรียกใช้ Pin (คุมไฟเข้า/ออก) และ PWM (คุมความเร็ว/องศา)
 import rp2                    # เรียกใช้ rp2 เพื่อควบคุม PIO (ตัวรับสัญญาณความเร็วสูง)
 import time                   # เรียกใช้ time เพื่อจับเวลา
